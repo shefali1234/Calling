@@ -1,7 +1,6 @@
 
 # Company HR Contact & Calling Dashboard
 
-This is a working first version built from your uploaded Excel file.
 
 ## Included features
 
@@ -18,10 +17,6 @@ This is a working first version built from your uploaded Excel file.
   - Companies
   - Responses
   - HR History
-
-## Default first-run logins
-
-CHANGE THESE PASSWORDS IMMEDIATELY AFTER FIRST LOGIN.
 
 
 
