@@ -23,21 +23,7 @@ This is a working first version built from your uploaded Excel file.
 
 CHANGE THESE PASSWORDS IMMEDIATELY AFTER FIRST LOGIN.
 
-- Master Admin
-  - Username: `master`
-  - Password: `Master@123`
 
-- Admin 1
-  - Username: `admin1`
-  - Password: `Admin1@123`
-
-- Admin 2
-  - Username: `admin2`
-  - Password: `Admin2@123`
-
-- Admin 3
-  - Username: `admin3`
-  - Password: `Admin3@123`
 
 ## Run locally
 
@@ -61,13 +47,7 @@ To enable email:
 2. Fill in your SMTP details.
 3. For Gmail/Google Workspace, use an App Password rather than your normal password.
 
-Example:
 
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 587
-SMTP_USER = "placement@example.com"
-SMTP_PASSWORD = "your-app-password"
-SMTP_SENDER_NAME = "Placement Cell"
 
 ## Data storage
 
