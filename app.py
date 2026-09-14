@@ -122,9 +122,9 @@ def init_db():
             # CHANGE THESE PASSWORDS IN THE ADMIN PANEL AFTER FIRST LOGIN.
             users = [
                 ("master", "Master Admin", hash_password("Master@123"), "master"),
-                ("admin1", "Shefali", hash_password("Shefali@2026"), "admin"),
-                ("admin2", "Kamaljit", hash_password("Kamal@2026"), "admin"),
-                ("admin3", "OPVerma", hash_password("Verma@2026"), "admin"),
+                ("Shefali", "Admin 1", hash_password("Shefali@2026"), "admin"),
+                ("Kamaljit", "Admin 2", hash_password("Kamal@2026"), "admin"),
+                ("OPVerma", "Admin 3", hash_password("Verma@2026"), "admin"),
             ]
             cur.executemany(
                 "INSERT INTO users(username, display_name, password_hash, role) VALUES(?,?,?,?)",
