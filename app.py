@@ -718,24 +718,116 @@ elif page == "Reports" and is_master:
 # -----------------------------
 elif page == "User Management" and is_master:
     st.title("👥 User Management")
+
     users = get_users(active_only=False)
+
+    # -----------------------------
+    # EXISTING USERS
+    # -----------------------------
+    st.subheader("Existing Users")
     st.dataframe(users, use_container_width=True, hide_index=True)
 
-    st.info("This version is intended for 4 authorized accounts: 1 Master Admin + 3 calling admins.")
+    st.divider()
+
+    # -----------------------------
+    # ADD NEW USER
+    # -----------------------------
+    st.subheader("➕ Add New Faculty Coordinator")
+
+    with st.form("add_user_form"):
+        username = st.text_input("Username")
+        display_name = st.text_input("Faculty Coordinator Name")
+        password = st.text_input(
+            "Temporary Password",
+            type="password"
+        )
+
+        role = st.selectbox(
+            "Role",
+            ["admin"]
+        )
+
+        add_user = st.form_submit_button("➕ Create User")
+
+    if add_user:
+
+        if not username.strip():
+            st.error("Username is required.")
+
+        elif not display_name.strip():
+            st.error("Faculty Coordinator name is required.")
+
+        elif len(password) < 8:
+            st.error("Password must contain at least 8 characters.")
+
+        else:
+            try:
+                with get_conn() as conn:
+
+                    conn.execute("""
+                        INSERT INTO users
+                        (username, display_name, password_hash, role, active)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        username.strip().lower(),
+                        display_name.strip(),
+                        hash_password(password),
+                        role,
+                        1
+                    ))
+
+                    conn.commit()
+
+                st.success(
+                    f"User '{display_name}' created successfully!"
+                )
+
+                st.rerun()
+
+            except sqlite3.IntegrityError:
+                st.error(
+                    "This username already exists. Please choose another username."
+                )
+
+    st.divider()
+
+    # -----------------------------
+    # RESET PASSWORD
+    # -----------------------------
+    st.subheader("🔐 Reset Password")
 
     with st.form("reset_password"):
-        username = st.selectbox("User", users["username"].tolist())
-        new_password = st.text_input("New password", type="password")
+        selected_username = st.selectbox(
+            "User",
+            users["username"].tolist()
+        )
+
+        new_password = st.text_input(
+            "New password",
+            type="password"
+        )
+
         reset = st.form_submit_button("Reset Password")
+
     if reset:
+
         if len(new_password) < 8:
             st.error("Use at least 8 characters.")
+
         else:
             execute(
-                "UPDATE users SET password_hash=? WHERE username=?",
-                (hash_password(new_password), username)
+                """
+                UPDATE users
+                SET password_hash=?
+                WHERE username=?
+                """,
+                (
+                    hash_password(new_password),
+                    selected_username
+                )
             )
-            st.success("Password changed.")
+
+            st.success("Password changed successfully!")
 
 # -----------------------------
 # Send Email
