@@ -647,9 +647,6 @@ elif page == "Follow-ups":
 # -----------------------------
 # Call History
 # -----------------------------
-# -----------------------------
-# Call History
-# -----------------------------
 elif page == "Call History":
     st.title("📝 Call Response History")
 
@@ -749,6 +746,34 @@ elif page == "Call History":
             ORDER BY r.created_at DESC
         """, (user["id"],))
 
+        # -----------------------------
+    # Download Call History
+    # -----------------------------
+    if not history.empty:
+
+        output = BytesIO()
+
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            history.to_excel(
+                writer,
+                index=False,
+                sheet_name="Call History"
+            )
+
+        output.seek(0)
+
+        st.download_button(
+            label="📥 Download Call History",
+            data=output,
+            file_name="Call_History.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+    else:
+        st.info("No call history available to download.")
+
+    # Display Call History
     st.dataframe(
         history,
         use_container_width=True,
