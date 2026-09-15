@@ -647,34 +647,113 @@ elif page == "Follow-ups":
 # -----------------------------
 # Call History
 # -----------------------------
+# -----------------------------
+# Call History
+# -----------------------------
 elif page == "Call History":
     st.title("📝 Call Response History")
 
     if is_master:
-        history = query_df("""
-            SELECT r.id, c.company AS Company, c.hr_name AS Current_HR,
-                   u.display_name AS Called_By, r.response_status AS Response,
-                   r.remarks AS Remarks, r.call_date AS Call_Date,
-                   r.followup_date AS Follow_Up, r.created_at AS Logged_At
-            FROM responses r
-            JOIN companies c ON r.company_id=c.id
-            JOIN users u ON r.user_id=u.id
-            ORDER BY r.created_at DESC
+
+        # Get existing faculty coordinators
+        coordinators = query_df("""
+            SELECT id, display_name, username
+            FROM users
+            WHERE role = 'admin'
+              AND active = 1
+            ORDER BY display_name
         """)
+
+        # Create dropdown options
+        coordinator_options = ["All Faculty Coordinators"]
+
+        coordinator_map = {}
+
+        for _, row in coordinators.iterrows():
+            name = row["display_name"]
+            username = row["username"]
+
+            label = f"{name} ({username})"
+            coordinator_options.append(label)
+            coordinator_map[label] = row["id"]
+
+        selected_coordinator = st.selectbox(
+            "👤 Select Faculty Coordinator",
+            coordinator_options
+        )
+
+        # If a coordinator is selected
+        if selected_coordinator != "All Faculty Coordinators":
+
+            selected_user_id = coordinator_map[selected_coordinator]
+
+            history = query_df("""
+                SELECT
+                    r.id,
+                    c.company AS Company,
+                    c.hr_name AS Current_HR,
+                    u.display_name AS Called_By,
+                    r.response_status AS Response,
+                    r.remarks AS Remarks,
+                    r.call_date AS Call_Date,
+                    r.followup_date AS Follow_Up,
+                    r.created_at AS Logged_At
+                FROM responses r
+                JOIN companies c
+                    ON r.company_id = c.id
+                JOIN users u
+                    ON r.user_id = u.id
+                WHERE r.user_id = ?
+                ORDER BY r.created_at DESC
+            """, (selected_user_id,))
+
+        # All coordinators
+        else:
+
+            history = query_df("""
+                SELECT
+                    r.id,
+                    c.company AS Company,
+                    c.hr_name AS Current_HR,
+                    u.display_name AS Called_By,
+                    r.response_status AS Response,
+                    r.remarks AS Remarks,
+                    r.call_date AS Call_Date,
+                    r.followup_date AS Follow_Up,
+                    r.created_at AS Logged_At
+                FROM responses r
+                JOIN companies c
+                    ON r.company_id = c.id
+                JOIN users u
+                    ON r.user_id = u.id
+                ORDER BY r.created_at DESC
+            """)
+
     else:
+
+        # Faculty coordinator sees only their own calls
         history = query_df("""
-            SELECT r.id, c.company AS Company, c.hr_name AS Current_HR,
-                   r.response_status AS Response, r.remarks AS Remarks,
-                   r.call_date AS Call_Date, r.followup_date AS Follow_Up,
-                   r.created_at AS Logged_At
+            SELECT
+                r.id,
+                c.company AS Company,
+                c.hr_name AS Current_HR,
+                r.response_status AS Response,
+                r.remarks AS Remarks,
+                r.call_date AS Call_Date,
+                r.followup_date AS Follow_Up,
+                r.created_at AS Logged_At
             FROM responses r
-            JOIN companies c ON r.company_id=c.id
-            WHERE r.user_id=?
+            JOIN companies c
+                ON r.company_id = c.id
+            WHERE r.user_id = ?
             ORDER BY r.created_at DESC
         """, (user["id"],))
 
-    st.dataframe(history, use_container_width=True, hide_index=True)
-
+    st.dataframe(
+        history,
+        use_container_width=True,
+        hide_index=True
+    )
 # -----------------------------
 # Reports
 # -----------------------------
