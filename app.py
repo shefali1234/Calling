@@ -295,7 +295,7 @@ st.sidebar.caption("Master Admin" if is_master else "Calling Admin")
 
 pages = ["Dashboard", "My Companies", "Follow-ups", "Call History", "Send Email", "Change Password"]
 if is_master:
-    pages = ["Dashboard", "Company Database", "Assignments", "Follow-ups", "Call History", "Reports", "User Management", "Send Email", "Change Password"]
+    pages = ["Dashboard", "Company Database", "Assignments", "Follow-ups", "Call History", "Reports", "User Management", "Send Email", "Change Password","Add Contacts from Excel"]
 
 page = st.sidebar.radio("Navigate", pages)
 
@@ -952,6 +952,258 @@ elif page == "Send Email":
                 INSERT INTO email_log(company_id, user_id, recipient, subject, body, success, error_message)
                 VALUES(?,?,?,?,?,?,?)
             """, (cid, user["id"], recipient.strip(), subject.strip(), body, success, err))
+
+# -----------------------------
+# Add / Merge Contacts from Excel
+# -----------------------------
+elif page == "Add Contacts from Excel":
+    st.title("➕ Add Contacts from Excel")
+
+    st.info(
+        "Upload an Excel file containing additional company/HR contacts. "
+        "Existing companies will not be duplicated."
+    )
+
+    uploaded_file = st.file_uploader(
+        "📂 Choose Excel file",
+        type=["xlsx", "xls"],
+        help="Excel should contain: Company, Sector, HR, Phno, Email"
+    )
+
+    if uploaded_file is not None:
+
+        try:
+            new_df = pd.read_excel(uploaded_file)
+
+            # Clean column names
+            new_df.columns = [
+                str(col).strip()
+                for col in new_df.columns
+            ]
+
+            required_columns = [
+                "Company",
+                "Sector",
+                "HR",
+                "Phno",
+                "Email"
+            ]
+
+            missing_columns = [
+                col for col in required_columns
+                if col not in new_df.columns
+            ]
+
+            if missing_columns:
+                st.error(
+                    "❌ Missing columns: "
+                    + ", ".join(missing_columns)
+                )
+            else:
+
+                # Keep only required columns
+                new_df = new_df[required_columns].copy()
+
+                # Clean company names
+                new_df["Company"] = (
+                    new_df["Company"]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
+                )
+
+                # Remove completely blank company rows
+                new_df = new_df[
+                    new_df["Company"] != ""
+                ]
+
+                st.write(
+                    f"📊 **{len(new_df)} contacts found in uploaded file.**"
+                )
+
+                # Preview
+                st.dataframe(
+                    new_df.head(20),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                if st.button(
+                    "➕ Merge Contacts",
+                    type="primary",
+                    use_container_width=True
+                ):
+
+                    added = 0
+                    existing = 0
+                    skipped = 0
+
+                    for _, row in new_df.iterrows():
+
+                        company = str(
+                            row["Company"]
+                        ).strip()
+
+                        if not company:
+                            skipped += 1
+                            continue
+
+                        # Check whether company already exists
+                        existing_company = query_df(
+                            """
+                            SELECT id
+                            FROM companies
+                            WHERE LOWER(TRIM(company))
+                                  = LOWER(TRIM(?))
+                            LIMIT 1
+                            """,
+                            (company,)
+                        )
+
+                        if not existing_company.empty:
+
+                            existing += 1
+
+                            # Update ONLY missing contact information
+                            # Do not overwrite existing data
+                            execute(
+                                """
+                                UPDATE companies
+                                SET
+                                    sector = CASE
+                                        WHEN (
+                                            sector IS NULL
+                                            OR TRIM(sector) = ''
+                                        )
+                                        THEN ?
+                                        ELSE sector
+                                    END,
+
+                                    hr_name = CASE
+                                        WHEN (
+                                            hr_name IS NULL
+                                            OR TRIM(hr_name) = ''
+                                        )
+                                        THEN ?
+                                        ELSE hr_name
+                                    END,
+
+                                    phone = CASE
+                                        WHEN (
+                                            phone IS NULL
+                                            OR TRIM(phone) = ''
+                                        )
+                                        THEN ?
+                                        ELSE phone
+                                    END,
+
+                                    email = CASE
+                                        WHEN (
+                                            email IS NULL
+                                            OR TRIM(email) = ''
+                                        )
+                                        THEN ?
+                                        ELSE email
+                                    END
+
+                                WHERE LOWER(TRIM(company))
+                                      = LOWER(TRIM(?))
+                                """,
+                                (
+                                    str(row["Sector"]).strip()
+                                    if pd.notna(row["Sector"])
+                                    else "",
+
+                                    str(row["HR"]).strip()
+                                    if pd.notna(row["HR"])
+                                    else "",
+
+                                    str(row["Phno"]).strip()
+                                    if pd.notna(row["Phno"])
+                                    else "",
+
+                                    str(row["Email"]).strip()
+                                    if pd.notna(row["Email"])
+                                    else "",
+
+                                    company
+                                )
+                            )
+
+                        else:
+
+                            # New company
+                            execute(
+                                """
+                                INSERT INTO companies
+                                (
+                                    company,
+                                    sector,
+                                    hr_name,
+                                    phone,
+                                    email,
+                                    active
+                                )
+                                VALUES (?, ?, ?, ?, ?, 1)
+                                """,
+                                (
+                                    company,
+
+                                    str(row["Sector"]).strip()
+                                    if pd.notna(row["Sector"])
+                                    else "",
+
+                                    str(row["HR"]).strip()
+                                    if pd.notna(row["HR"])
+                                    else "",
+
+                                    str(row["Phno"]).strip()
+                                    if pd.notna(row["Phno"])
+                                    else "",
+
+                                    str(row["Email"]).strip()
+                                    if pd.notna(row["Email"])
+                                    else ""
+                                )
+                            )
+
+                            added += 1
+
+                    st.success(
+                        "✅ Contacts merged successfully!"
+                    )
+
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.metric(
+                            "New Companies",
+                            added
+                        )
+
+                    with col2:
+                        st.metric(
+                            "Already Existing",
+                            existing
+                        )
+
+                    with col3:
+                        st.metric(
+                            "Skipped",
+                            skipped
+                        )
+
+                    st.info(
+                        "Existing assignments, call history, "
+                        "responses and follow-ups were preserved."
+                    )
+
+                    st.rerun()
+
+        except Exception as e:
+            st.error(
+                f"❌ Error reading Excel file: {e}"
+            )
 
 # -----------------------------
 # Change Password
