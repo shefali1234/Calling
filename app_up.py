@@ -29,9 +29,31 @@ def users(active_only=True):
     return pd.DataFrame(rows(q.execute()))
 
 def company(cid): return one('companies', id=cid)
-def authenticate(username,password):
-    r=rows(sb.table('users').select('*').ilike('username',username.strip()).eq('active',True).limit(1).execute())
-    return r[0] if r and r[0]['password_hash']==hp(password) else None
+def authenticate(username, password):
+    try:
+        result = (
+            sb.table("users")
+            .select("id,username,display_name,password_hash,role,active")
+            .ilike("username", username.strip())
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+
+        if not result.data:
+            return None
+
+        user = result.data[0]
+
+        if user["password_hash"] == hp(password):
+            return user
+
+        return None
+
+    except Exception as e:
+        st.error("SUPABASE ERROR:")
+        st.code(str(e))
+        return None
 
 def kamaljit():
     r=rows(sb.table('users').select('id,username,display_name').ilike('username','kamaljit').eq('active',True).limit(1).execute())
