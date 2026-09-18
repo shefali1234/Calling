@@ -17,6 +17,26 @@ sb = get_supabase()
 def hp(p): return hashlib.sha256(p.encode('utf-8')).hexdigest()
 def rows(resp): return resp.data or []
 def df(resp): return pd.DataFrame(rows(resp))
+
+def fetch_all(table, select='*', filters=None, order=None, desc=False, page_size=1000):
+    """Fetch every matching row from Supabase/PostgREST using range pagination."""
+    all_rows = []
+    start = 0
+    while True:
+        q = sb.table(table).select(select)
+        for method, column, value in (filters or []):
+            q = getattr(q, method)(column, value)
+        if order:
+            q = q.order(order, desc=desc)
+        batch = rows(q.range(start, start + page_size - 1).execute())
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+    return all_rows
+
+def fetch_all_df(table, select='*', filters=None, order=None, desc=False):
+    return pd.DataFrame(fetch_all(table, select, filters, order, desc))
 def one(table, **eq):
     q=sb.table(table).select('*')
     for k,v in eq.items(): q=q.eq(k,v)
@@ -63,9 +83,8 @@ def notify(uid,title,message):
     sb.table('portal_notifications').insert({'recipient_user_id':uid,'title':title,'message':message}).execute()
 
 def joined_responses(uid=None):
-    q=sb.table('responses').select('id,company_id,user_id,response_status,remarks,call_date,followup_date,followup_action,created_at,companies(company,hr_name,phone,email),users(display_name,username)')
-    if uid is not None: q=q.eq('user_id',uid)
-    data=rows(q.order('created_at',desc=True).execute())
+    filters=[('eq','user_id',uid)] if uid is not None else None
+    data=fetch_all('responses','id,company_id,user_id,response_status,remarks,call_date,followup_date,followup_action,created_at,companies(company,hr_name,phone,email),users(display_name,username)',filters,'created_at',True)
     out=[]
     for r in data:
         c=r.get('companies') or {}; u=r.get('users') or {}
@@ -73,9 +92,9 @@ def joined_responses(uid=None):
     return pd.DataFrame(out)
 
 def export_excel():
-    cs=df(sb.table('companies').select('*').order('company').execute())
+    cs=fetch_all_df('companies','*',order='company')
     rs=joined_responses()
-    hs=df(sb.table('hr_history').select('*').order('changed_at',desc=True).execute())
+    hs=fetch_all_df('hr_history','*',order='changed_at',desc=True)
     out=BytesIO()
     with pd.ExcelWriter(out,engine='openpyxl') as w:
         cs.to_excel(w,'Companies',index=False); rs.to_excel(w,'Responses',index=False); hs.to_excel(w,'HR History',index=False)
@@ -109,7 +128,7 @@ if st.sidebar.button('Logout',use_container_width=True): st.session_state.user=N
 # ---------- Dashboard ----------
 if page=='Dashboard':
     st.title('Dashboard')
-    cs=df(sb.table('companies').select('id,assigned_to').eq('active',True).execute()); rs=df(sb.table('responses').select('id,company_id,user_id,followup_date').execute())
+    cs=fetch_all_df('companies','id,assigned_to',[('eq','active',True)]); rs=fetch_all_df('responses','id,company_id,user_id,followup_date')
     if master:
         a=int(cs['assigned_to'].notna().sum()) if not cs.empty else 0
         c1,c2,c3,c4=st.columns(4); c1.metric('Active Companies',len(cs)); c2.metric('Assigned',a); c3.metric('Total Responses',len(rs)); c4.metric('Follow-ups Today',int((rs.get('followup_date',pd.Series(dtype=str))==date.today().isoformat()).sum()))
@@ -120,7 +139,7 @@ if page=='Dashboard':
 
 elif page=='Company Database' and master:
     st.title('🏢 Company Database')
-    data=df(sb.table('companies').select('*').eq('active',True).order('company').execute()); search=st.text_input('Search company / sector / HR / email')
+    data=fetch_all_df('companies','*',[('eq','active',True)],'company'); search=st.text_input('Search company / sector / HR / email')
     if search and not data.empty:
         mask=data.fillna('').astype(str).apply(lambda x:x.str.contains(search,case=False,regex=False)).any(axis=1); data=data[mask]
     st.dataframe(data,use_container_width=True,hide_index=True)
@@ -140,7 +159,7 @@ elif page=='Company Database' and master:
 
 elif page=='Assignments' and master:
     st.title('👑 Assign Companies'); us=users(); us=us[us.role=='admin']; amap={f"{r.display_name} ({r.username})":int(r.id) for _,r in us.iterrows()}
-    cs=df(sb.table('companies').select('id,company,sector,hr_name,assigned_to').eq('active',True).order('company').execute()); mode=st.radio('Show',['Unassigned','All'],horizontal=True)
+    cs=fetch_all_df('companies','id,company,sector,hr_name,assigned_to',[('eq','active',True)],'company'); mode=st.radio('Show',['Unassigned','All'],horizontal=True)
     if mode=='Unassigned' and not cs.empty: cs=cs[cs.assigned_to.isna()]
     labels={f"{r.company} | {r.sector or ''} | HR: {r.hr_name or ''}":int(r.id) for _,r in cs.iterrows()}; sel=st.multiselect('Select companies',labels); an=st.selectbox('Assign to',list(amap))
     if st.button('Assign Selected',type='primary'):
@@ -148,7 +167,7 @@ elif page=='Assignments' and master:
         st.success(f'Assigned {len(sel)} company/companies.'); st.rerun()
 
 elif page=='My Companies' and not master:
-    st.title('📞 My Assigned Companies'); data=df(sb.table('companies').select('*').eq('active',True).eq('assigned_to',uid).order('company').execute()); st.dataframe(data,use_container_width=True,hide_index=True)
+    st.title('📞 My Assigned Companies'); data=fetch_all_df('companies','*',[('eq','active',True),('eq','assigned_to',uid)],'company'); st.dataframe(data,use_container_width=True,hide_index=True)
     if not data.empty:
         opts={f"{r.company} — {r.hr_name or 'No HR'}":int(r.id) for _,r in data.iterrows()}; lab=st.selectbox('Select company to record call',opts); c=company(opts[lab]); st.write(f"**Phone:** {c.get('phone') or '-'}   **Email:** {c.get('email') or '-'}")
         # similar company warning across other coordinators
@@ -223,7 +242,7 @@ elif page=='User Management' and master:
             except Exception as e: st.error(f'Could not update credentials: {e}')
 
 elif page=='Share with Kamaljit':
-    st.title('📨 Share HR Contact with Kamaljit'); cs=df(sb.table('companies').select('id,company,hr_name,email').eq('active',True).order('company').execute())
+    st.title('📨 Share HR Contact with Kamaljit'); cs=fetch_all_df('companies','id,company,hr_name,email',[('eq','active',True)],'company')
     if not master and not cs.empty:
         assigned=df(sb.table('companies').select('id').eq('assigned_to',uid).eq('active',True).execute()); ids=set(assigned.id.tolist()) if not assigned.empty else set(); cs=cs[cs.id.isin(ids)]
     if cs.empty: st.info('No companies available.')
@@ -253,25 +272,118 @@ elif page=='Change Password':
         else: sb.table('users').update({'password_hash':hp(new)}).eq('id',uid).execute(); st.success('Password changed.')
 
 elif page=='Add Contacts from Excel':
-    st.title('➕ Add Contacts from Excel'); f=st.file_uploader('Choose Excel file',type=['xlsx','xls'])
+    st.title('➕ Add / Update Contacts from Excel')
+    st.caption('Required columns: Company, Sector, HR, Phno, Email')
+    f=st.file_uploader('Choose Excel file',type=['xlsx','xls'])
     if f:
-        nd=pd.read_excel(f); required=['Company','Sector','HR','Phno','Email']; missing=[x for x in required if x not in nd.columns]
-        if missing: st.error('Missing columns: '+', '.join(missing))
+        nd=pd.read_excel(f)
+        required=['Company','Sector','HR','Phno','Email']
+        missing=[x for x in required if x not in nd.columns]
+        if missing:
+            st.error('Missing columns: '+', '.join(missing))
         else:
-            nd=nd[required].copy(); nd['Company']=nd.Company.fillna('').astype(str).str.strip(); nd=nd[nd.Company!='']; st.dataframe(nd.head(20),use_container_width=True)
+            nd=nd[required].copy()
+            for col in required:
+                nd[col]=nd[col].fillna('').astype(str).str.strip()
+            nd=nd[nd.Company!=''].copy()
+
+            # Consolidate repeated company rows. For each field, retain the last non-empty
+            # value in the uploaded file so useful contact information is not lost.
+            original_rows=len(nd)
+            def last_nonblank(series):
+                vals=[str(v).strip() for v in series if str(v).strip()]
+                return vals[-1] if vals else ''
+            nd['_company_key']=nd.Company.str.casefold().str.replace(r'\s+',' ',regex=True).str.strip()
+            nd=(nd.groupby('_company_key',sort=False,as_index=False)
+                  .agg({'Company':last_nonblank,'Sector':last_nonblank,'HR':last_nonblank,
+                        'Phno':last_nonblank,'Email':last_nonblank}))
+            duplicates_consolidated=original_rows-len(nd)
+
+            st.write(f'**Valid Excel rows:** {original_rows}  |  **Unique companies to process:** {len(nd)}  |  **Duplicate rows consolidated:** {duplicates_consolidated}')
+            st.dataframe(nd[required].head(30),use_container_width=True,hide_index=True)
+
+            overwrite=st.checkbox(
+                'Update existing HR / phone / email / sector when Excel contains a different non-empty value',
+                value=True
+            )
+
             if st.button('➕ Merge Contacts',type='primary'):
-                added=existing=0
-                current=df(sb.table('companies').select('*').execute()); cmap={str(r.company).strip().casefold():r for _,r in current.iterrows()} if not current.empty else {}
-                for _,r in nd.iterrows():
-                    name=str(r.Company).strip(); key=name.casefold(); vals={'sector':'' if pd.isna(r.Sector) else str(r.Sector).strip(),'hr_name':'' if pd.isna(r.HR) else str(r.HR).strip(),'phone':'' if pd.isna(r.Phno) else str(r.Phno).strip(),'email':'' if pd.isna(r.Email) else str(r.Email).strip()}
-                    if key in cmap:
-                        old=cmap[key]; payload={k:v for k,v in vals.items() if v and not str(old.get(k) or '').strip()}
-                        if payload: sb.table('companies').update(payload).eq('id',int(old.id)).execute()
-                        existing+=1
-                    else: sb.table('companies').insert({'company':name,**vals,'active':True}).execute(); added+=1
-                st.success(f'Merged successfully. New: {added}; Existing: {existing}'); st.rerun()
+                current=fetch_all_df('companies','*')
+                cmap={}
+                if not current.empty:
+                    for _,old in current.iterrows():
+                        key=re.sub(r'\s+',' ',str(old.get('company') or '').strip().casefold())
+                        # Preserve the first DB record for an exact normalized company name.
+                        if key and key not in cmap:
+                            cmap[key]=old
+
+                added=updated=unchanged=0
+                errors=[]
+
+                with st.spinner('Merging contacts into Supabase...'):
+                    for _,r in nd.iterrows():
+                        name=str(r.Company).strip()
+                        key=re.sub(r'\s+',' ',name.casefold())
+                        vals={
+                            'sector':str(r.Sector).strip(),
+                            'hr_name':str(r.HR).strip(),
+                            'phone':str(r.Phno).strip(),
+                            'email':str(r.Email).strip()
+                        }
+                        try:
+                            if key in cmap:
+                                old=cmap[key]
+                                payload={}
+                                for k,v in vals.items():
+                                    oldv=str(old.get(k) or '').strip()
+                                    if v and ((overwrite and v != oldv) or (not oldv)):
+                                        payload[k]=v
+
+                                if payload:
+                                    contact_changed=any(
+                                        k in payload and str(old.get(k) or '').strip()!=payload[k]
+                                        for k in ('hr_name','phone','email')
+                                    )
+                                    if contact_changed:
+                                        sb.table('hr_history').insert({
+                                            'company_id':int(old.id),
+                                            'old_hr_name':old.get('hr_name'),
+                                            'old_phone':old.get('phone'),
+                                            'old_email':old.get('email'),
+                                            'changed_by':uid
+                                        }).execute()
+
+                                    sb.table('companies').update(payload).eq('id',int(old.id)).execute()
+                                    for k,v in payload.items():
+                                        old[k]=v
+                                    updated+=1
+                                else:
+                                    unchanged+=1
+                            else:
+                                result=sb.table('companies').insert({
+                                    'company':name,
+                                    **vals,
+                                    'active':True
+                                }).execute()
+                                added+=1
+                                if result.data:
+                                    cmap[key]=pd.Series(result.data[0])
+                        except Exception as e:
+                            errors.append(f'{name}: {e}')
+
+                st.success(
+                    f'Merge completed. New companies: {added}; '
+                    f'Updated companies: {updated}; '
+                    f'Unchanged companies: {unchanged}; '
+                    f'Duplicate Excel rows consolidated: {duplicates_consolidated}.'
+                )
+                if errors:
+                    st.warning(f'{len(errors)} row(s) could not be processed.')
+                    with st.expander('Show merge errors'):
+                        st.code('\n'.join(errors[:100]))
+                st.info('Refresh the Dashboard / Company Database to see the updated totals.')
 
 # completion summary for coordinators
 if not master:
-    st.divider(); assigned=df(sb.table('companies').select('id').eq('assigned_to',uid).eq('active',True).execute()); rr=df(sb.table('responses').select('company_id').eq('user_id',uid).execute()); total=len(assigned); called=rr.company_id.nunique() if not rr.empty else 0
+    st.divider(); assigned=fetch_all_df('companies','id',[('eq','assigned_to',uid),('eq','active',True)]); rr=fetch_all_df('responses','company_id',[('eq','user_id',uid)]); total=len(assigned); called=rr.company_id.nunique() if not rr.empty else 0
     c1,c2,c3=st.columns(3); c1.metric('Assigned Companies',total); c2.metric('Companies Called',called); c3.metric('Remaining',max(total-called,0))
