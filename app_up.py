@@ -113,13 +113,13 @@ if st.session_state.user is None:
     st.stop()
 
 user=st.session_state.user; master=user['role']=='master'; uid=user['id']
-st.sidebar.title('📞 HR Calling Portal'); st.sidebar.write(f"Logged in as **{user['display_name']}**")
+st.sidebar.title(' HR Calling Portal'); st.sidebar.write(f"Logged in as **{user['display_name']}**")
 pages=['Dashboard','My Companies','Follow-ups','Call History','Share with Kamaljit','Change Password','Add Contacts from Excel']
 if master: pages=['Dashboard','Company Database','Assignments','Follow-ups','Call History','Reports','User Management','Share with Kamaljit','Change Password','Add Contacts from Excel']
 page=st.sidebar.radio('Navigate',pages)
 notes=df(sb.table('portal_notifications').select('*').eq('recipient_user_id',uid).is_('read_at','null').order('created_at',desc=True).execute())
 if not notes.empty:
-    st.sidebar.divider(); st.sidebar.subheader(f'🔔 Portal Messages ({len(notes)})')
+    st.sidebar.divider(); st.sidebar.subheader(f' Portal Messages ({len(notes)})')
     for _,n in notes.iterrows(): st.sidebar.warning(f"**{n['title']}**\n\n{n['message']}")
     if st.sidebar.button('✓ Mark messages read'):
         sb.table('portal_notifications').update({'read_at':datetime.now().isoformat()}).eq('recipient_user_id',uid).is_('read_at','null').execute(); st.rerun()
@@ -138,7 +138,7 @@ if page=='Dashboard':
         c1,c2,c3,c4=st.columns(4); c1.metric('My Assigned Companies',len(mine)); c2.metric('Companies Contacted',called); c3.metric('Follow-ups Today',int((myr.get('followup_date',pd.Series(dtype=str))==today).sum())); c4.metric('Remaining',max(len(mine)-called,0))
 
 elif page=='Company Database' and master:
-    st.title('🏢 Company Database')
+    st.title(' Company Database')
     data=fetch_all_df('companies','*',[('eq','active',True)],'company'); search=st.text_input('Search company / sector / HR / email')
     if search and not data.empty:
         mask=data.fillna('').astype(str).apply(lambda x:x.str.contains(search,case=False,regex=False)).any(axis=1); data=data[mask]
@@ -158,7 +158,7 @@ elif page=='Company Database' and master:
         else: sb.table('companies').insert({'company':cn.strip(),'sector':sec,'hr_name':hr,'phone':ph,'email':em}).execute(); st.success('Company added.'); st.rerun()
 
 elif page=='Assignments' and master:
-    st.title('👑 Assign Companies'); us=users(); us=us[us.role=='admin']; amap={f"{r.display_name} ({r.username})":int(r.id) for _,r in us.iterrows()}
+    st.title(' Assign Companies'); us=users(); us=us[us.role=='admin']; amap={f"{r.display_name} ({r.username})":int(r.id) for _,r in us.iterrows()}
     cs=fetch_all_df('companies','id,company,sector,hr_name,assigned_to',[('eq','active',True)],'company'); mode=st.radio('Show',['Unassigned','All'],horizontal=True)
     if mode=='Unassigned' and not cs.empty: cs=cs[cs.assigned_to.isna()]
     labels={f"{r.company} | {r.sector or ''} | HR: {r.hr_name or ''}":int(r.id) for _,r in cs.iterrows()}; sel=st.multiselect('Select companies',labels); an=st.selectbox('Assign to',list(amap))
@@ -167,7 +167,7 @@ elif page=='Assignments' and master:
         st.success(f'Assigned {len(sel)} company/companies.'); st.rerun()
 
 elif page=='My Companies' and not master:
-    st.title('📞 My Assigned Companies'); data=fetch_all_df('companies','*',[('eq','active',True),('eq','assigned_to',uid)],'company'); st.dataframe(data,use_container_width=True,hide_index=True)
+    st.title(' My Assigned Companies'); data=fetch_all_df('companies','*',[('eq','active',True),('eq','assigned_to',uid)],'company'); st.dataframe(data,use_container_width=True,hide_index=True)
     if not data.empty:
         opts={f"{r.company} — {r.hr_name or 'No HR'}":int(r.id) for _,r in data.iterrows()}; lab=st.selectbox('Select company to record call',opts); c=company(opts[lab]); st.write(f"**Phone:** {c.get('phone') or '-'}   **Email:** {c.get('email') or '-'}")
         # similar company warning across other coordinators
@@ -177,7 +177,7 @@ elif page=='My Companies' and not master:
             for _,r in other.iterrows():
                 pn=str(r.Company or '').casefold(); pt={t for t in re.findall(r'[a-z0-9]+',pn) if len(t)>=4}
                 if selected in pn or pn in selected or toks & pt:
-                    st.warning(f"⚠️ Similar company already contacted by **{r.Called_By}**. Company: {r.Company} | Status: {r.Response} | Remarks: {r.Remarks}"); break
+                    st.warning(f" Similar company already contacted by **{r.Called_By}**. Company: {r.Company} | Status: {r.Response} | Remarks: {r.Remarks}"); break
         statuses=['Interested','Not Interested','Call Later','No Response','Wrong Number','HR Changed','Email Sent','Meeting Scheduled','Follow-up Required','Other']
         with st.form('response'):
             status=st.selectbox('Response',statuses); remarks=st.text_area('Remarks *'); cd=st.date_input('Call date',date.today()); nf=st.checkbox('Set follow-up reminder'); fd=st.date_input('Next follow-up date',date.today()) if nf else None; save=st.form_submit_button('Save Response',type='primary')
@@ -186,7 +186,7 @@ elif page=='My Companies' and not master:
             else: sb.table('responses').insert({'company_id':c['id'],'user_id':uid,'response_status':status,'remarks':remarks.strip(),'call_date':cd.isoformat(),'followup_date':fd.isoformat() if fd else None}).execute(); st.success('Response saved.'); st.rerun()
 
 elif page=='Follow-ups':
-    st.title('⏰ Follow-ups'); h=joined_responses(None if master else uid)
+    st.title(' Follow-ups'); h=joined_responses(None if master else uid)
     if h.empty: st.info('No follow-ups scheduled.')
     else:
         h=h[h.Follow_Up.notna()].copy(); h['Follow_Up_Date']=pd.to_datetime(h.Follow_Up,errors='coerce').dt.date; today=date.today(); h['Status']=h.Follow_Up_Date.apply(lambda d:'🔴 Overdue' if d<today else ('🟠 Due Today' if d==today else '🟡 Upcoming')); st.dataframe(h,use_container_width=True,hide_index=True)
@@ -210,7 +210,7 @@ elif page=='Call History':
         out=BytesIO(); h.to_excel(out,index=False,engine='openpyxl'); st.download_button('📥 Download Call History',out.getvalue(),'Call_History.xlsx')
 
 elif page=='Reports' and master:
-    st.title('📊 Reports'); h=joined_responses()
+    st.title(' Reports'); h=joined_responses()
     if not h.empty:
         st.subheader('Response Distribution'); st.bar_chart(h.Response.value_counts())
         perf=h.groupby('Called_By').agg(Calls=('id','count'),Companies=('company_id','nunique')).reset_index(); st.dataframe(perf,use_container_width=True,hide_index=True)
